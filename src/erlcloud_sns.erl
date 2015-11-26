@@ -91,8 +91,10 @@
 
 -type(sns_subscribe_protocol_type () :: http | https | email | 'email-json' | sms | sqs | application).
 
+-type(sns_response() :: {ok, string()} | {error, any()}).
+
 -export_type([sns_acl/0, sns_endpoint_attribute/0,
-              sns_message/0, sns_application/0, sns_endpoint/0]).
+              sns_message/0, sns_application/0, sns_endpoint/0, sns_response/0]).
 
 -spec add_permission/3 :: (string(), string(), sns_acl()) -> ok.
 
@@ -112,30 +114,30 @@ add_permission(TopicArn, Label, Permissions, Config)
 
 
 
--spec create_platform_endpoint/2 :: (string(), string()) -> string().
+-spec create_platform_endpoint/2 :: (string(), string()) -> sns_response().
 create_platform_endpoint(PlatformApplicationArn, Token) ->
     create_platform_endpoint(PlatformApplicationArn, Token, "").
 
--spec create_platform_endpoint/3 :: (string(), string(), string()) -> string().
+-spec create_platform_endpoint/3 :: (string(), string(), string()) -> sns_response().
 create_platform_endpoint(PlatformApplicationArn, Token, CustomUserData) ->
     create_platform_endpoint(PlatformApplicationArn, Token, CustomUserData, []).
 
--spec create_platform_endpoint/4 :: (string(), string(), string(), [{sns_endpoint_attribute(), string()}]) -> string().
+-spec create_platform_endpoint/4 :: (string(), string(), string(), [{sns_endpoint_attribute(), string()}]) -> sns_response().
 create_platform_endpoint(PlatformApplicationArn, Token, CustomUserData, Attributes) ->
     create_platform_endpoint(PlatformApplicationArn, Token, CustomUserData, Attributes, default_config()).
 
--spec create_platform_endpoint/5 :: (string(), string(), string(), [{sns_endpoint_attribute(), string()}], aws_config()) -> string().
+-spec create_platform_endpoint/5 :: (string(), string(), string(), [{sns_endpoint_attribute(), string()}], aws_config()) -> sns_response().
 create_platform_endpoint(PlatformApplicationArn, Token, CustomUserData, Attributes, Config) ->
-    Doc =
-        sns_xml_request(
-            Config, "CreatePlatformEndpoint",
-            [{"PlatformApplicationArn", PlatformApplicationArn},
-             {"Token",                  Token},
-             {"CustomUserData",         CustomUserData}
-             | encode_attributes(Attributes)
-             ]),
-    erlcloud_xml:get_text(
-        "CreatePlatformEndpointResult/EndpointArn", Doc).
+    case sns_xml_request(
+        Config, "CreatePlatformEndpoint",
+        [{"PlatformApplicationArn", PlatformApplicationArn},
+         {"Token",                  Token},
+         {"CustomUserData",         CustomUserData}
+         | encode_attributes(Attributes)
+         ]) of
+      {ok, Doc} -> {ok, erlcloud_xml:get_text("CreatePlatformEndpointResult/EndpointArn", Doc)};
+      Error -> Error
+    end.
 
 -spec create_platform_endpoint/6 :: (string(), string(), string(), [{sns_endpoint_attribute(), string()}], string(), string()) -> string().
 create_platform_endpoint(PlatformApplicationArn, Token, CustomUserData, Attributes, AccessKeyID, SecretAccessKey) ->
@@ -150,8 +152,11 @@ create_topic(TopicName) ->
 
 create_topic(TopicName, Config)
     when is_record(Config, aws_config) ->
-        Doc = sns_xml_request(Config, "CreateTopic", [{"Name", TopicName}]),
-        erlcloud_xml:get_text("/CreateTopicResponse/CreateTopicResult/TopicArn", Doc).
+        case sns_xml_request(Config, "CreateTopic", [{"Name", TopicName}]) of
+          {ok, Doc} ->
+            {ok, erlcloud_xml:get_text("/CreateTopicResponse/CreateTopicResult/TopicArn", Doc)};
+          Error -> Error
+        end.
 
 
 -spec confirm_subscription/1 :: (sns_event()) -> string().
@@ -174,16 +179,16 @@ confirm_subscription(SnsEvent, AccessKeyID, SecretAccessKey) ->
 confirm_subscription2(Token, TopicArn) ->
     confirm_subscription2(Token, TopicArn, default_config()).
 
--spec confirm_subscription2/3 :: (string(), string(), aws_config()) -> string().
+-spec confirm_subscription2/3 :: (string(), string(), aws_config()) -> sns_response().
 confirm_subscription2(Token, TopicArn, Config) ->
-    Doc =
-        sns_xml_request(
+    case sns_xml_request(
             Config, "ConfirmSubscription",
             [{"Token",    Token},
              {"TopicArn", TopicArn}
-             ]),
-    erlcloud_xml:get_text(
-        "ConfirmSubscriptionResult/SubscriptionArn", Doc).
+             ]) of
+      {ok, Doc} -> {ok, erlcloud_xml:get_text( "ConfirmSubscriptionResult/SubscriptionArn", Doc)};
+      Error -> Error
+    end.
 
 -spec confirm_subscription2/4 :: (string(), string(), string(), string()) -> string().
 confirm_subscription2(Token, TopicArn, AccessKeyID, SecretAccessKey) ->
@@ -221,17 +226,20 @@ delete_topic(TopicArn, Config)
 get_endpoint_attributes(EndpointArn) ->
     get_endpoint_attributes(EndpointArn, default_config()).
 
--spec get_endpoint_attributes/2 :: (string(), aws_config()) -> sns_endpoint().
+-spec get_endpoint_attributes/2 :: (string(), aws_config()) -> {ok, sns_endpoint()}.
 get_endpoint_attributes(EndpointArn, Config) ->
     Params = [{"EndpointArn", EndpointArn}],
-    Doc = sns_xml_request(Config, "GetEndpointAttributes", Params),
-    Decoded =
-        erlcloud_xml:decode(
-            [{attributes, "GetEndpointAttributesResult/Attributes/entry",
-                fun extract_attribute/1
-             }],
-            Doc),
-    [{arn, EndpointArn} | Decoded].
+    case sns_xml_request(Config, "GetEndpointAttributes", Params) of
+        {ok, Doc} ->
+            Decoded =
+                erlcloud_xml:decode(
+                    [{attributes, "GetEndpointAttributesResult/Attributes/entry",
+                        fun extract_attribute/1
+                     }],
+                    Doc),
+                {ok, [{arn, EndpointArn} | Decoded]};
+        Error -> Error
+    end.
 
 -spec get_endpoint_attributes/3 :: (string(), string(), string()) -> sns_endpoint().
 get_endpoint_attributes(EndpointArn, AccessKeyID, SecretAccessKey) ->
@@ -245,9 +253,12 @@ get_endpoint_attributes(EndpointArn, AccessKeyID, SecretAccessKey) ->
 set_endpoint_attributes(EndpointArn, Attributes) ->
     set_endpoint_attributes(EndpointArn, Attributes, default_config()).
 set_endpoint_attributes(EndpointArn, Attributes, Config) ->
-    Doc = sns_xml_request(Config, "SetEndpointAttributes", [{"EndpointArn", EndpointArn} |
-                                                            encode_attributes(Attributes)]),
-    erlcloud_xml:get_text("ResponseMetadata/RequestId", Doc).
+    case sns_xml_request(Config, "SetEndpointAttributes", [{"EndpointArn", EndpointArn} |
+                                                            encode_attributes(Attributes)]) of
+      {ok, Doc} ->
+        {ok, erlcloud_xml:get_text("ResponseMetadata/RequestId", Doc)};
+      Error -> Error
+    end.
 
 
 
@@ -266,15 +277,18 @@ list_endpoints_by_platform_application(PlatformApplicationArn, NextToken, Config
             undefined -> [{"PlatformApplicationArn", PlatformApplicationArn}];
             NextToken -> [{"PlatformApplicationArn", PlatformApplicationArn}, {"NextToken", NextToken}]
         end,
-    Doc = sns_xml_request(Config, "ListEndpointsByPlatformApplication", Params),
-    Decoded =
-        erlcloud_xml:decode(
-            [{endpoints, "ListEndpointsByPlatformApplicationResult/Endpoints/member",
-                fun extract_endpoint/1
-             },
-             {next_token, "ListEndpointsByPlatformApplicationResult/NextToken", text}],
-            Doc),
-    Decoded.
+    case sns_xml_request(Config, "ListEndpointsByPlatformApplication", Params) of
+        {ok, Doc} ->
+            Decoded =
+                erlcloud_xml:decode(
+                    [{endpoints, "ListEndpointsByPlatformApplicationResult/Endpoints/member",
+                        fun extract_endpoint/1
+                     },
+                     {next_token, "ListEndpointsByPlatformApplicationResult/NextToken", text}],
+                    Doc),
+                Decoded;
+        Error -> Error
+    end.
 list_endpoints_by_platform_application(PlatformApplicationArn, NextToken, AccessKeyID, SecretAccessKey) ->
     list_endpoints_by_platform_application(PlatformApplicationArn, NextToken, new_config(AccessKeyID, SecretAccessKey)).
 
@@ -296,15 +310,19 @@ list_topics(NextToken, Config) ->
             undefined -> [];
             NextToken -> [{"NextToken", NextToken}]
         end,
-    Doc = sns_xml_request(Config, "ListTopics", Params),
-    Decoded =
-        erlcloud_xml:decode(
-            [{topics, "ListTopicsResult/Topics/member",
-                fun extract_topic_arn/1
-             },
-             {next_token, "ListTopicsResult/NextToken", text}],
-            Doc),
-    Decoded.
+
+    case sns_xml_request(Config, "ListTopics", Params) of
+        {ok, Doc} ->
+            Decoded =
+                erlcloud_xml:decode(
+                    [{topics, "ListTopicsResult/Topics/member",
+                        fun extract_topic_arn/1
+                     },
+                     {next_token, "ListTopicsResult/NextToken", text}],
+                    Doc),
+            Decoded;
+        Error -> Error
+    end.
 
 -spec list_topics_all/0 :: () -> [[{arn, string()}]].
 -spec list_topics_all/1 :: (aws_config()) -> [[{arn, string()}]].
@@ -330,14 +348,19 @@ list_platform_applications(NextToken, Config) ->
             undefined -> [];
             NextToken -> [{"NextToken", NextToken}]
         end,
-    Doc = sns_xml_request(Config, "ListPlatformApplications", Params),
-    Decoded =
-        erlcloud_xml:decode(
-            [{applications, "ListPlatformApplicationsResult/PlatformApplications/member",
-                fun extract_application/1
-             }],
-            Doc),
-    proplists:get_value(applications, Decoded, []).
+
+    case sns_xml_request(Config, "ListPlatformApplications", Params) of
+        {ok, Doc} ->
+            Decoded =
+                erlcloud_xml:decode(
+                    [{applications, "ListPlatformApplicationsResult/PlatformApplications/member",
+                        fun extract_application/1
+                     }],
+                    Doc),
+
+            proplists:get_value(applications, Decoded, []);
+        Error -> Error
+    end.
 
 -spec list_platform_applications/3 :: (undefined|string(), string(), string()) -> [sns_application()].
 list_platform_applications(NextToken, AccessKeyID, SecretAccessKey) ->
@@ -345,19 +368,19 @@ list_platform_applications(NextToken, AccessKeyID, SecretAccessKey) ->
 
 
 
--spec publish_to_topic/2 :: (string(), sns_message()) -> string().
+-spec publish_to_topic/2 :: (string(), sns_message()) -> sns_response().
 publish_to_topic(TopicArn, Message) ->
     publish_to_topic(TopicArn, Message, undefined).
 
--spec publish_to_topic/3 :: (string(), sns_message(), undefined|string()) -> string().
+-spec publish_to_topic/3 :: (string(), sns_message(), undefined|string()) -> sns_response().
 publish_to_topic(TopicArn, Message, Subject) ->
     publish_to_topic(TopicArn, Message, Subject, default_config()).
 
--spec publish_to_topic/4 :: (string(), sns_message(), undefined|string(), aws_config()) -> string().
+-spec publish_to_topic/4 :: (string(), sns_message(), undefined|string(), aws_config()) -> sns_response().
 publish_to_topic(TopicArn, Message, Subject, Config) ->
     publish(topic, TopicArn, Message, Subject, Config).
 
--spec publish_to_topic/5 :: (string(), sns_message(), undefined|string(), string(), string()) -> string().
+-spec publish_to_topic/5 :: (string(), sns_message(), undefined|string(), string(), string()) -> sns_response().
 publish_to_topic(TopicArn, Message, Subject, AccessKeyID, SecretAccessKey) ->
     publish_to_topic(TopicArn, Message, Subject, new_config(AccessKeyID, SecretAccessKey)).
 
@@ -365,19 +388,19 @@ publish_to_topic(TopicArn, Message, Subject, AccessKeyID, SecretAccessKey) ->
 publish_to_target(TargetArn, Message) ->
     publish_to_target(TargetArn, Message, undefined).
 
--spec publish_to_target/3 :: (string(), sns_message(), undefined|string()) -> string().
+-spec publish_to_target/3 :: (string(), sns_message(), undefined|string()) -> sns_response().
 publish_to_target(TargetArn, Message, Subject) ->
     publish_to_target(TargetArn, Message, Subject, default_config()).
 
--spec publish_to_target/4 :: (string(), sns_message(), undefined|string(), aws_config()) -> string().
+-spec publish_to_target/4 :: (string(), sns_message(), undefined|string(), aws_config()) -> sns_response().
 publish_to_target(TargetArn, Message, Subject, Config) ->
     publish(target, TargetArn, Message, Subject, Config).
 
--spec publish_to_target/5 :: (string(), sns_message(), undefined|string(), string(), string()) -> string().
+-spec publish_to_target/5 :: (string(), sns_message(), undefined|string(), string(), string()) -> sns_response().
 publish_to_target(TargetArn, Message, Subject, AccessKeyID, SecretAccessKey) ->
     publish_to_target(TargetArn, Message, Subject, new_config(AccessKeyID, SecretAccessKey)).
 
--spec publish/5 :: (topic|target, string(), sns_message(), undefined|string(), aws_config()) -> string().
+-spec publish/5 :: (topic|target, string(), sns_message(), undefined|string(), aws_config()) -> sns_response().
 publish(Type, RecipientArn, Message, Subject, Config) ->
     RecipientParam =
         case Type of
@@ -398,12 +421,12 @@ publish(Type, RecipientArn, Message, Subject, Config) ->
             undefined -> [];
             Subject -> [{"Subject", Subject}]
         end,
-    Doc =
-        sns_xml_request(
+    case sns_xml_request(
             Config, "Publish",
-            RecipientParam ++ MessageParams ++ SubjectParam),
-    erlcloud_xml:get_text(
-        "PublishResult/MessageId", Doc).
+            RecipientParam ++ MessageParams ++ SubjectParam) of
+      {ok, Doc} -> {ok, erlcloud_xml:get_text("PublishResult/MessageId", Doc)};
+      Error -> Error
+    end.
 
 
 
@@ -459,11 +482,14 @@ subscribe(Endpoint, Protocol, TopicArn) ->
 -spec(subscribe/4 :: (string(), sns_subscribe_protocol_type(), string(), aws_config()) -> Arn::string()).
 subscribe(Endpoint, Protocol, TopicArn, Config)
     when is_record(Config, aws_config) ->
-         Doc = sns_xml_request(Config, "Subscribe", [
+         case sns_xml_request(Config, "Subscribe", [
                 {"Endpoint", Endpoint},
                 {"Protocol", atom_to_list(Protocol)},
-                {"TopicArn", TopicArn}]),
-        erlcloud_xml:get_text("/SubscribeResponse/SubscribeResult/SubscriptionArn", Doc).
+                {"TopicArn", TopicArn}]) of
+            {ok, Doc} ->
+                {ok, erlcloud_xml:get_text("/SubscribeResponse/SubscribeResult/SubscriptionArn", Doc)};
+            Error -> Error
+         end.
 
 -spec new(string(), string()) -> aws_config().
 
@@ -564,14 +590,14 @@ sns_xml_request(Config, Action, Params) ->
                                        Config#aws_config.sns_host, undefined, "/",
                                        [{"Action", Action}, {"Version", ?API_VERSION} | Params],
                                        "sns", Config) of
-        {ok, XML} -> XML;
+        {ok, XML} -> {ok, XML};
         {error, {http_error, 400, _BadRequest, Body}} ->
             XML = element(1, xmerl_scan:string(binary_to_list(Body))),
             ErrCode = erlcloud_xml:get_text("Error/Code", XML),
             ErrMsg = erlcloud_xml:get_text("Error/Message", XML),
-            erlang:error({sns_error, ErrCode, ErrMsg});
+            {error, {sns_error, ErrCode, ErrMsg}};
         {error, Reason} ->
-            erlang:error({sns_error, Reason})
+            {error, {sns_error, Reason}}
     end.
 
 sns_request(Config, Action, Params) ->
@@ -580,14 +606,14 @@ sns_request(Config, Action, Params) ->
                                        Config#aws_config.sns_host, undefined, "/",
                                        [{"Action", Action}, {"Version", ?API_VERSION} | Params],
                                        "sns", Config) of
-        {ok, _Response} -> ok;
+        {ok, Response} -> {ok, Response};
         {error, {http_error, 400, _BadRequest, Body}} ->
             XML = element(1, xmerl_scan:string(binary_to_list(Body))),
             ErrCode = erlcloud_xml:get_text("Error/Code", XML),
             ErrMsg = erlcloud_xml:get_text("Error/Message", XML),
-            erlang:error({sns_error, ErrCode, ErrMsg});
+            {error, {sns_error, ErrCode, ErrMsg}};
         {error, Reason} ->
-            erlang:error({sns_error, Reason})
+            {error, {sns_error, Reason}}
     end.
 
 list_all(Fun, Type, Config, Token, Acc) ->

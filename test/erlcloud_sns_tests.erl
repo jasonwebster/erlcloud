@@ -202,7 +202,7 @@ create_topic_output_tests(_) ->
                            <RequestId>a8dec8b3-33a4-11df-8963-01868b7c937a</RequestId>
                          </ResponseMetadata>
                       </CreateTopicResponse>",
-                "arn:aws:sns:us-east-1:123456789012:My-Topic"})
+                   {ok, "arn:aws:sns:us-east-1:123456789012:My-Topic"}})
             ],
     output_tests(?_f(erlcloud_sns:create_topic("My-Topic")), Tests).
 
@@ -267,7 +267,7 @@ subscribe_output_tests(_) ->
                             <RequestId>c4407779-24a4-56fa-982c-3d927f93a775</RequestId>
                           </ResponseMetadata>
                         </SubscribeResponse>",
-                "arn:aws:sns:us-west-2:123456789012:MyTopic:6b0e71bd-7e97-4d97-80ce-4a0994e55286"})
+                 {ok, "arn:aws:sns:us-west-2:123456789012:MyTopic:6b0e71bd-7e97-4d97-80ce-4a0994e55286"}})
             ],
     output_tests(?_f(erlcloud_sns:subscribe("arn:aws:sqs:us-west-2:123456789012:MyQueue", sqs,
                                         "arn:aws:sns:us-west-2:123456789012:MyTopic")), Tests).
